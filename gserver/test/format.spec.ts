@@ -9,10 +9,11 @@ const generalSettings = {
     But: 3,
     And: 'relativeUp',
     SomeTestKey: 12,
-    'Scenario Outline': 0,
-    // 'asdasd' as value of '#' in theory could be passed
-    // because not strong typing for theVsCode settings
+    'Scenario Outline:': 0,
+    // As used could pass any value via the settings,
+    // Check that it will not brake formatting in case of wrong value
     '#': 'asdasd' as any,
+    // Also, check case with the wrong key
     Wenn: 2,
   },
 };
