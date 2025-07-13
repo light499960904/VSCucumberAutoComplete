@@ -1,5 +1,6 @@
 ## 3.1.0
 * Extension updates:
+1. Fixed error with space in the optional text 
 
 * Development Tech Debt updates:
 1. Corrected options default values, handling and typings.
