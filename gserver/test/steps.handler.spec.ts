@@ -161,6 +161,7 @@ describe('getRegTextForStep', () => {
       ['I use {string}', "I use (\"|')[^\\1]*\\1"],
       ['I use {}', 'I use .*'],
       ['I have 1 cucumber(s) in my belly', 'I have 1 cucumber(s)? in my belly'],
+      ['I have( no) cucumbers in my belly', 'I have( no)? cucumbers in my belly'],
       [
         'I have cucumbers in my belly/stomach',
         'I have cucumbers in my (belly|stomach)',
@@ -203,7 +204,7 @@ describe('getRegTextForStep', () => {
 
 describe('getPartialRegParts', () => {
   const data = 'I do (a| ( b)) and (c | d) and "(.*)"$';
-  const res = ['I', 'do', '(a| ( b))', 'and', '(c | d)', 'and', '"(.*)"$'];
+  const res = ['I', 'do', '(a| ( b)?)', 'and', '(c | d)', 'and', '"(.*)"$'];
   it(`should correctly parse "${data}" string into parts`, () => {
     expect(s.getPartialRegParts(data)).toStrictEqual(res);
   });

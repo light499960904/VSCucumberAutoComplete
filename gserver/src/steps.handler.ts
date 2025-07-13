@@ -255,7 +255,7 @@ export default class StepsHandler {
         })
 
         //Optional Text
-        step = step.replace(/\(([a-z]+)\)/g, '($1)?');
+        step = step.replace(/\(([a-z\s]+)\)/g, '($1)?');
 
         //Alternative text a/b/c === (a|b|c)
         step = step.replace(
