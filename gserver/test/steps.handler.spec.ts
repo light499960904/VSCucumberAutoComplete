@@ -203,7 +203,7 @@ describe('getRegTextForStep', () => {
 
 describe('getPartialRegParts', () => {
   const data = 'I do (a| ( b)) and (c | d) and "(.*)"$';
-  const res = ['I', 'do', '(a| ( b))', 'and', '(c | d)', 'and', '"(.*)"$'];
+  const res = ['I', 'do', '(a| ( b)?)', 'and', '(c | d)', 'and', '"(.*)"$'];
   it(`should correctly parse "${data}" string into parts`, () => {
     expect(s.getPartialRegParts(data)).toStrictEqual(res);
   });
