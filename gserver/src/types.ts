@@ -9,6 +9,12 @@ export type CustomParameter = {
     value: string
 };
 
+export type ParameterSymbolConfig = {
+    parameterType: string,
+    prefix: string,
+    suffix: string
+};
+
 type FormatConfVal = number | 'relative' | 'relativeUp';
 
 export interface FormatConf {
@@ -28,8 +34,9 @@ export interface BaseSettings {
     formatConfOverride?: FormatConf,
     onTypeFormat?: boolean,
     gherkinDefinitionPart?: string,
-    stepRegExSymbol?: string
-    pureTextSteps?: boolean
+    stepRegExSymbol?: string,
+    pureTextSteps?: boolean,
+    parameterSymbols?: ParameterSymbolConfig[]
 }
 
 export interface Settings {
@@ -45,6 +52,7 @@ export interface Settings {
     formatConfOverride?: FormatConf,
     onTypeFormat?: boolean,
     gherkinDefinitionPart?: string,
-    stepRegExSymbol?: string
-    pureTextSteps?: boolean
+    stepRegExSymbol?: string,
+    pureTextSteps?: boolean,
+    parameterSymbols?: ParameterSymbolConfig[]
 }

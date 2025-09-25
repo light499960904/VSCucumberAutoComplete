@@ -31,7 +31,7 @@ import {
     getGherkinTypeLower,
 } from './gherkin';
 
-import { Settings, StepSettings, CustomParameter } from './types';
+import { Settings, StepSettings, CustomParameter, ParameterSymbolConfig } from './types';
 
 export type Step = {
   id: string;
@@ -259,6 +259,122 @@ export default class StepsHandler {
         return step;
     }
 
+    /**
+     * Get custom symbols for a parameter type
+     */
+    getParameterSymbols(parameterType: string): { prefix: string, suffix: string } {
+        const { parameterSymbols } = this.settings;
+        if (!parameterSymbols || !Array.isArray(parameterSymbols)) {
+            return { prefix: '', suffix: '' };
+        }
+        
+        const config = parameterSymbols.find(config => config.parameterType === parameterType);
+        if (config) {
+            return { prefix: config.prefix, suffix: config.suffix };
+        }
+        
+        // Check for default config (parameterType: '*' or 'default')
+        const defaultConfig = parameterSymbols.find(config => 
+            config.parameterType === '*' || config.parameterType === 'default'
+        );
+        if (defaultConfig) {
+            return { prefix: defaultConfig.prefix, suffix: defaultConfig.suffix };
+        }
+        
+        return { prefix: '', suffix: '' };
+    }
+
+    /**
+     * Apply custom parameter symbols to a step text
+     */
+    applyParameterSymbols(stepText: string): string {
+        if (!this.settings.parameterSymbols || !Array.isArray(this.settings.parameterSymbols)) {
+            return stepText;
+        }
+
+        // Find all Cucumber expressions in the step text
+        const parameterMatches = stepText.match(/\{([^}]+)\}/g);
+        if (!parameterMatches) {
+            return stepText;
+        }
+
+        let result = stepText;
+        parameterMatches.forEach(match => {
+            const parameterType = match.slice(1, -1); // Remove { and }
+            const symbols = this.getParameterSymbols(parameterType);
+            
+            // Only replace if symbols are different from default
+            if (symbols.prefix !== '{' || symbols.suffix !== '}') {
+                result = result.replace(match, `${symbols.prefix}${parameterType}${symbols.suffix}`);
+            }
+        });
+
+        return result;
+    }
+
+    /**
+     * Check if a word is a parameter expression (with default or custom symbols)
+     */
+    isParameterExpression(word: string): boolean {
+        // Check for default {param} format
+        if (word.startsWith('{') && word.endsWith('}')) {
+            return true;
+        }
+
+        // Check for custom parameter symbols
+        if (!this.settings.parameterSymbols || !Array.isArray(this.settings.parameterSymbols)) {
+            return false;
+        }
+
+        // Check against all configured parameter symbols
+        for (const config of this.settings.parameterSymbols) {
+            if (word.startsWith(config.prefix) && word.endsWith(config.suffix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Find all parameter expressions in text (with default or custom symbols)
+     */
+    findAllParameterExpressions(text: string): { fullMatch: string, type: string }[] {
+        const results: { fullMatch: string, type: string }[] = [];
+        
+        // Find default {param} format
+        const defaultMatches = text.match(/\{([^}]+)\}/g);
+        if (defaultMatches) {
+            defaultMatches.forEach(match => {
+                const type = match.slice(1, -1); // Remove { and }
+                results.push({ fullMatch: match, type });
+            });
+        }
+
+        // Find custom parameter symbols
+        if (this.settings.parameterSymbols && Array.isArray(this.settings.parameterSymbols)) {
+            for (const config of this.settings.parameterSymbols) {
+                const { prefix, suffix, parameterType } = config;
+                if (prefix === '{' && suffix === '}') {
+                    continue; // Already handled above
+                }
+                
+                // Escape special regex characters in prefix and suffix
+                const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                
+                const regex = new RegExp(`${escapedPrefix}([^${escapedSuffix}]+)${escapedSuffix}`, 'g');
+                let match;
+                while ((match = regex.exec(text)) !== null) {
+                    const type = match[1];
+                    results.push({ fullMatch: match[0], type });
+                }
+            }
+        }
+
+        return results;
+    }
+
     specialParameters = [
         //Ruby interpolation (like `#{Something}` ) should be replaced with `.*`
         //https://github.com/alexkrechik/VSCucumberAutoComplete/issues/65
@@ -465,26 +581,30 @@ export default class StepsHandler {
     }
 
     getCompletionInsertText(step: string, stepPart: string): string {
+        // Apply custom parameters transformation first
+        const transformedStep = this.handleCustomParameters(step);
+        const transformedStepPart = this.handleCustomParameters(stepPart);
+        
         // In pureTextSteps mode, return the original step text directly
         if (this.settings.pureTextSteps) {
             // Simple partial matching for pureTextSteps mode
-            if (step.toLowerCase().startsWith(stepPart.toLowerCase())) {
+            if (transformedStep.toLowerCase().startsWith(transformedStepPart.toLowerCase())) {
                 // Return the part that comes after the stepPart
-                return step.substring(stepPart.length).trim();
+                return transformedStep.substring(transformedStepPart.length).trim();
             }
-            return step;
+            return transformedStep;
         }
 
         // Store original step for parameter recovery before any processing
-        const originalStep = step;
+        const originalStep = transformedStep;
 
         // Return only part we need for our step
-        let res = step;
+        let res = transformedStep;
         
         // We need to use a different approach since getPartialRegParts modifies the content
         // Let's work with the original step and do partial matching manually
-        const originalStepParts = originalStep.split(' ');
-        const stepPartWords = stepPart.trim().split(' ');
+        const originalStepParts = originalStep.split(' ').filter(part => part.length > 0);
+        const stepPartWords = transformedStepPart.trim().split(' ').filter(part => part.length > 0);
         
         // Find how many words from the beginning match
         let matchingWordsCount = 0;
@@ -493,8 +613,8 @@ export default class StepsHandler {
             const originalWord = originalStepParts[i];
             const stepWord = stepPartWords[i];
             
-            if (originalWord.startsWith('{') && originalWord.endsWith('}')) {
-                // This is a Cucumber expression, it should match any word in stepPart
+            if (this.isParameterExpression(originalWord)) {
+                // This is a Cucumber expression (with default or custom symbols), it should match any word in stepPart
                 matchingWordsCount++;
             } else if (originalWord.toLowerCase() === stepWord.toLowerCase()) {
                 // Exact match (case insensitive)
@@ -517,12 +637,19 @@ export default class StepsHandler {
                 Convert parameter placeholders to VS Code snippets
                 Look for Cucumber expressions like {word}, {string}, {int}, etc.
                 and convert them to ${1:}, ${2:}, etc.
+                Also apply custom parameter symbols if configured.
             */
-            const parameterMatches = res.match(/\{[^}]+\}/g);
-            if (parameterMatches) {
-                parameterMatches.forEach((param, index) => {
+            // Find parameter expressions with default or custom symbols
+            const allParameterMatches = this.findAllParameterExpressions(res);
+            if (allParameterMatches.length > 0) {
+                allParameterMatches.forEach((paramInfo, index) => {
                     const snippetNumber = index + 1;
-                    res = res.replace(param, `\${${snippetNumber}:}`);
+                    const symbols = this.getParameterSymbols(paramInfo.type);
+                    
+                    // Create snippet with custom symbols wrapping the placeholder
+                    // For example: {string} -> "${1:}" where prefix is " and suffix is "
+                    const snippetContent = `${symbols.prefix}\${${snippetNumber}:}${symbols.suffix}`;
+                    res = res.replace(paramInfo.fullMatch, snippetContent);
                 });
             } else {
                 // If no Cucumber expressions found, look for .* patterns (fallback for processed steps)
@@ -535,7 +662,10 @@ export default class StepsHandler {
                 }
             }
         } else {
-            // For non-smartSnippets mode, clean up common patterns
+            // For non-smartSnippets mode, apply custom parameter symbols
+            res = this.applyParameterSymbols(res);
+            
+            // Clean up common patterns
             res = res.replace(/"\[\^"\]\+"/g, '""');
             // Clean up .* patterns that represent parameters
             res = res.replace(/\.\*/g, '{}');

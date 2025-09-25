@@ -1,10 +1,10 @@
 {
   "name": "cucumberautocomplete",
-  "version": "3.0.5",
-  "publisher": "alexkrechik",
-  "author": "Alexander Krechik",
+  "version": "1.0.0",
+  "publisher": "CalWu",
+  "author": "CalWu",
   "license": "MIT",
-  "displayName": "Cucumber (Gherkin) Full Support",
+  "displayName": "Cucumber (Gherkin) Full Support for CIPPLANNER",
   "description": "VSCode Cucumber (Gherkin) Full Language Support + Formatting + Autocomplete",
   "homepage": "https://github.com/alexkrechik/VSCucumberAutoComplete",
   "engines": {
@@ -162,6 +162,30 @@
           "type": "boolean",
           "required": false,
           "default": false
+        },
+        "cucumberautocomplete.parameterSymbols": {
+          "description": "Customize symbols used around parameter placeholders in code completion. Array of objects with 'parameterType' (parameter name or '*' for default), 'prefix' and 'suffix' properties",
+          "type": "array",
+          "required": false,
+          "default": [],
+          "items": {
+            "type": "object",
+            "properties": {
+              "parameterType": {
+                "type": "string",
+                "description": "The parameter type name (e.g., 'string', 'int', 'pronoun') or '*' for default fallback"
+              },
+              "prefix": {
+                "type": "string",
+                "description": "Symbol to place before the parameter placeholder"
+              },
+              "suffix": {
+                "type": "string",
+                "description": "Symbol to place after the parameter placeholder"
+              }
+            },
+            "required": ["parameterType", "prefix", "suffix"]
+          }
         }
       }
     }
