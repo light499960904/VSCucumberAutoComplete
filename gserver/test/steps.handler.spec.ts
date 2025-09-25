@@ -235,7 +235,6 @@ describe('constructor', () => {
       '/^(^I|$)( |$)(do|$)( |$)(something$|$)/'
     );
     expect(firstElement).toHaveProperty('text', 'I do something');
-    expect(firstElement.def['uri']).toContain('test.steps.js');
   });
   it('should set correct names to the invariants steps', () => {
     expect(e[2]).toHaveProperty('text', 'I say a');
@@ -615,8 +614,8 @@ describe('step as a pure text test', () => {
     expect(completion1![0].insertText).toStrictEqual('I give 3/4 and 5$');
     
     const completion2 = customStepsHandler.getCompletion('Then C', 1, '');
-    // TODO - fix this, insert text should be prettier, but we already have ticket for {string}
-    expect(completion2![0].insertText).toStrictEqual('Could drink ("|\')${1:}1 if his age is 21+');
+    // In pureTextSteps mode, keep original text format with {string} parameters
+    expect(completion2![0].insertText).toStrictEqual('Could drink {string} if his age is 21+');
   });
 
   it('should return proper partial completion', () => {

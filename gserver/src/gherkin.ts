@@ -1,3 +1,9 @@
+/*
+ * @Author       : CalWu CalWu@cipplanner.com
+ * @Date         : 2025-09-25 09:30:52
+ * @LastEditTime : 2025-09-25 09:38:22
+ * @Description  : 
+ */
 import { escapeRegExp } from './util';
 
 const givenWords = escapeRegExp('Gegewe|بفرض|Dau|Dada|Daus|Dadas|Դիցուք|Dáu|Daos|Daes|Y\'know|Tutaq ki|Verilir|Dato|Дадено|Donat|Donada|Atès|Atesa|假如|假设|假定|假設|Sipoze|Sipoze ke|Sipoze Ke|Zadan|Zadani|Zadano|Pokud|Za předpokladu|Givet|Gegeven|Stel|😐|Given|Donitaĵo|Komence|Eeldades|Oletetaan|Soit|Etant donné que|Etant donné qu\'|Etant donné|Etant donnée|Etant donnés|Etant données|Étant donné que|Étant donné qu\'|Étant donné|Étant donnée|Étant donnés|Étant données|Dado|Dados|მოცემული|Angenommen|Gegeben sei|Gegeben seien|Gegebensei|Gegebenseien|Δεδομένου|આપેલ છે|בהינתן|अगर|यदि|चूंकि|Amennyiben|Adott|Ef|Dengan|Cuir i gcás go|Cuir i gcás nach|Cuir i gcás gur|Cuir i gcás nár|Data|Dati|Date|前提|Nalika|Nalikaning|ನೀಡಿದ|ghu\' noblu\'|DaH ghu\' bejlu\'|조건|먼저|I CAN HAZ|Kad|Duota|ugeholl|Дадена|Dadeno|Dadena|Diberi|Bagi|Өгөгдсөн нь|Анх|Gitt|Thurh|Þurh|Ðurh|ਜੇਕਰ|ਜਿਵੇਂ ਕਿ|با فرض|Gangway!|Zakładając|Mając|Zakładając, że|Date fiind|Dat fiind|Dată fiind|Dati fiind|Dați fiind|Daţi fiind|Допустим|Дано|Пусть|Givun|Youse know when youse got|За дато|За дате|За дати|Za dato|Za date|Za dati|Pokiaľ|Za predpokladu|Dano|Podano|Zaradi|Privzeto|கொடுக்கப்பட்ட|Әйтик|చెప్పబడినది|กำหนดให้|Diyelim ki|Припустимо|Припустимо, що|Нехай|اگر|بالفرض|فرض کیا|Агар|Biết|Cho|Anrhegedig a');
@@ -49,7 +55,7 @@ export const getGherkinType = (word: string): GherkinType => {
 };
 
 export const getGherkinTypeLower = (word: string): GherkinType => {
-    const lowerWord = word.toLowerCase();
+    const lowerWord = word?.toLowerCase();
     if (givenWordsSetLower.has(lowerWord)) {
         return GherkinType.Given;
     }

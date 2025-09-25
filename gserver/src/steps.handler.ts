@@ -112,8 +112,8 @@ export default class StepsHandler {
     }
 
     getStepRegExp(): RegExp {
-    //Actually, we dont care what the symbols are before our 'Gherkin' word
-    //But they shouldn't end with letter
+        //Actually, we dont care what the symbols are before our 'Gherkin' word
+        //But they shouldn't end with letter
         const startPart = "^((?:[^'\"/]*?[^\\w])|.{0})";
 
         //All the steps should be declared using any gherkin keyword. We should get first 'gherkin' word
@@ -150,7 +150,54 @@ export default class StepsHandler {
     }
 
     geStepDefinitionMatch(line: string) {
-        return line.match(this.getStepRegExp());
+        // First try the original regex
+        const match = line.match(this.getStepRegExp());
+        if (match) {
+            return match;
+        }
+
+        // Clean up the line for better matching by removing extra whitespace and line breaks
+        const cleanLine = line.replace(/\s+/g, ' ').trim();
+
+        // Try to match ES6 destructured imports like: (0, cucumber_1.When)(`template`, callback)
+        // Also handles formats with comments like: (0, cucumber_1.When)( //comment `template`, callback)
+        const es6Patterns = [
+            // Pattern 1: (0, cucumber_1.When)(`template`, callback)
+            /^(.*?[^\w])([^\w]*(?:cucumber_[^\w]*)?)(Given|When|Then|And|But|defineStep|Step|StepDefinition)[^\w]*\)\s*\(\s*([`'"])((?:(?=(?:\\)*)\\.|.)*?)\4/i,
+            
+            // Pattern 2: (0, cucumber_1.When)( //comment `template`, callback) - handle comments between parentheses
+            /^(.*?[^\w])([^\w]*(?:cucumber_[^\w]*)?)(Given|When|Then|And|But|defineStep|Step|StepDefinition)[^\w]*\)\s*\(\s*\/\/[^`'"]*\s*([`'"])((?:(?=(?:\\)*)\\.|.)*?)\4/i,
+            
+            // Pattern 3: More flexible pattern for various comment styles
+            /^(.*?[^\w])([^\w]*(?:cucumber_[^\w]*)?)(Given|When|Then|And|But|defineStep|Step|StepDefinition)[^\w]*\)\s*\([^`'"]*([`'"])((?:(?=(?:\\)*)\\.|.)*?)\4/i
+        ];
+
+        for (const pattern of es6Patterns) {
+            const es6Match = cleanLine.match(pattern);
+            if (es6Match && es6Match[5]) { // Make sure we have a step part
+                return [es6Match[0], es6Match[1] || '', es6Match[3] || '', es6Match[4] || '', es6Match[5] || ''];
+            }
+        }
+
+        // Try to match CommonJS module.exports patterns: module.exports.When = function(template, callback) {}
+        const commonjsMatch = cleanLine.match(/^(.*?[^\w])(module\.exports\.|exports\.)(Given|When|Then|And|But|defineStep|Step|StepDefinition)\s*=\s*function\s*\(\s*([`'"])((?:(?=(?:\\)*)\\.|.)*?)\4/i);
+        if (commonjsMatch) {
+            return [commonjsMatch[0], commonjsMatch[1] || '', commonjsMatch[3] || '', commonjsMatch[4] || '', commonjsMatch[5] || ''];
+        }
+
+        // Try to match Cucumber.js v7+ pattern: cucumber.When(template, callback)
+        const cucumberDirectMatch = cleanLine.match(/^(.*?[^\w])(cucumber\.|Cucumber\.)(Given|When|Then|And|But|defineStep|Step|StepDefinition)\s*\(\s*([`'"])((?:(?=(?:\\)*)\\.|.)*?)\4/i);
+        if (cucumberDirectMatch) {
+            return [cucumberDirectMatch[0], cucumberDirectMatch[1] || '', cucumberDirectMatch[3] || '', cucumberDirectMatch[4] || '', cucumberDirectMatch[5] || ''];
+        }
+
+        // Try to match new RegExp constructor: new RegExp(`template`)
+        const regexpMatch = cleanLine.match(/^(.*?new\s+RegExp\s*\(\s*)([`'"/])((?:(?=(?:\\)*)\\.|.)*?)\2/i);
+        if (regexpMatch) {
+            return [regexpMatch[0], regexpMatch[1] || '', '', regexpMatch[2] || '', regexpMatch[3] || ''];
+        }
+
+        return null;
     }
 
     getOutlineVars(text: string) {
@@ -225,23 +272,25 @@ export default class StepsHandler {
         [/{stringInDoubleQuotes}/g, '"[^"]+"'],
         [/{word}/g, '[^\\s]+'],
         [/{string}/g, "(\"|')[^\\1]*\\1"],
-        [/{}/g, '.*'],
+        // Note: Generic {anything} patterns are handled separately in getRegTextForStep method
     ] as const
 
     getRegTextForPureStep(step: string): string {
+        // In pureTextSteps mode, we still support Cucumber expressions
+        // but treat other regex special characters as literal text
         
-        // Change all the special parameters
+        // First, change all the Cucumber expressions to regex patterns
         this.specialParameters.forEach(([parameter, change]) => {
             step = step.replace(parameter, change)
         })
     
-        // Escape all special symbols
+        // Escape all special regex symbols to treat them as literal text
         step = escaprRegExpForPureText(step)
 
-        // Escape all the special parameters back
+        // Restore the Cucumber expression patterns (unescape them)
         this.specialParameters.forEach(([, change]) => {
             const escapedChange = escaprRegExpForPureText(change);
-            step = step.replace(escapedChange, change)
+            step = step.split(escapedChange).join(change)
         })
 
         // Compile the final regex
@@ -328,12 +377,59 @@ export default class StepsHandler {
     }
 
     getTextForStep(step: string): string {
-    //Remove all the backslashes
+        //Remove all the backslashes used for escaping regex special characters
         step = step.replace(/\\/g, '');
 
         //Remove "string start" and "string end" RegEx symbols
         step = step.replace(/^\^|\$$/g, '');
 
+        // Convert regex patterns back to Cucumber expressions
+        // This reverses the transformations from specialParameters
+        
+        // {string} pattern: (\"|')[^\\1]*\\1 becomes (\"|')[^1]*1 after removing backslashes  
+        // Use exact string replacement since regex escaping is complex for this pattern
+        step = step.split('(\"|\')\[^1]*1').join('{string}');
+        
+        // {stringInDoubleQuotes} pattern: "[^"]+"
+        step = step.replace(/"\[^"\]\+"/g, '{stringInDoubleQuotes}');
+        
+        // {word} pattern: [^\s]+ becomes [^s]+ after removing backslashes
+        step = step.replace(/\[^s\]\+/g, '{word}');
+        
+        // {int} pattern: -?\d+ becomes -?d+ after removing backslashes
+        step = step.replace(/-\?d\+/g, '{int}');
+        
+        // {float} pattern: -?\d*\.?\d+ becomes -?d*.?d+ after removing backslashes
+        step = step.replace(/-\?d\*\.\?d\+/g, '{float}');
+        
+        // Note: Generic {anything} patterns that were converted to .* by the regex 
+        // step.replace(/([^\\]|^){(?![\d,])(.*?)}/g, '$1.*') are not restored here
+        // because we cannot reliably determine the original parameter name
+        
+        return step;
+    }
+
+    // New method to get text for step that preserves Cucumber expressions
+    getTextForStepWithCucumberExpressions(originalStep: string): string {
+        // For non-pureTextSteps mode, we want to preserve the original Cucumber expressions
+        // instead of converting them to regex and back
+        let step = originalStep;
+        
+        // Remove backslashes used for escaping in regex
+        step = step.replace(/\\\(/g, '(').replace(/\\\)/g, ')');
+        step = step.replace(/\\\[/g, '[').replace(/\\\]/g, ']');
+        step = step.replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+        step = step.replace(/\\\./g, '.');
+        step = step.replace(/\\\*/g, '*');
+        step = step.replace(/\\\+/g, '+');
+        step = step.replace(/\\\?/g, '?');
+        step = step.replace(/\\\|/g, '|');
+        step = step.replace(/\\\^/g, '^');
+        step = step.replace(/\\\$/g, '$');
+        
+        // Remove regex anchors
+        step = step.replace(/^\^/, '').replace(/\$$/, '');
+        
         return step;
     }
 
@@ -369,59 +465,86 @@ export default class StepsHandler {
     }
 
     getCompletionInsertText(step: string, stepPart: string): string {
-    // Return only part we need for our step
+        // In pureTextSteps mode, return the original step text directly
+        if (this.settings.pureTextSteps) {
+            // Simple partial matching for pureTextSteps mode
+            if (step.toLowerCase().startsWith(stepPart.toLowerCase())) {
+                // Return the part that comes after the stepPart
+                return step.substring(stepPart.length).trim();
+            }
+            return step;
+        }
+
+        // Store original step for parameter recovery before any processing
+        const originalStep = step;
+
+        // Return only part we need for our step
         let res = step;
-        const strArray = this.getPartialRegParts(res);
-        const currArray = new Array<string>();
-        const { length } = strArray;
-        for (let i = 0; i < length; i++) {
-            currArray.push(strArray.shift()!);
-            try {
-                const r = new RegExp('^' + escapeRegExp(currArray.join(' ')));
-                if (!r.test(stepPart)) {
-                    res = new Array<string>()
-                        .concat(currArray.slice(-1), strArray)
-                        .join(' ');
-                    break;
+        
+        // We need to use a different approach since getPartialRegParts modifies the content
+        // Let's work with the original step and do partial matching manually
+        const originalStepParts = originalStep.split(' ');
+        const stepPartWords = stepPart.trim().split(' ');
+        
+        // Find how many words from the beginning match
+        let matchingWordsCount = 0;
+        for (let i = 0; i < Math.min(originalStepParts.length, stepPartWords.length); i++) {
+            // For Cucumber expressions, we need special handling
+            const originalWord = originalStepParts[i];
+            const stepWord = stepPartWords[i];
+            
+            if (originalWord.startsWith('{') && originalWord.endsWith('}')) {
+                // This is a Cucumber expression, it should match any word in stepPart
+                matchingWordsCount++;
+            } else if (originalWord.toLowerCase() === stepWord.toLowerCase()) {
+                // Exact match (case insensitive)
+                matchingWordsCount++;
+            } else {
+                // Check if it's a partial match for the last word
+                if (i === stepPartWords.length - 1 && originalWord.toLowerCase().startsWith(stepWord.toLowerCase())) {
+                    matchingWordsCount++;
                 }
-            } catch (err) {
-                //TODO - show some warning
+                break;
             }
         }
+        
+        // Return the remaining part of the step
+        const remainingParts = originalStepParts.slice(matchingWordsCount);
+        res = remainingParts.join(' ');
 
         if (this.settings.smartSnippets) {
             /*
-                Now we should change all the 'user input' items to some snippets
-                Create our regexp for this:
-                1) \(? - we be started from opening brace
-                2) \\.|\[\[^\]]\] - [a-z] or \w or .
-                3) \*|\+|\{[^\}]+\} - * or + or {1, 2}
-                4) \)? - could be finished with opening brace
+                Convert parameter placeholders to VS Code snippets
+                Look for Cucumber expressions like {word}, {string}, {int}, etc.
+                and convert them to ${1:}, ${2:}, etc.
             */
-            const match = res.match(
-                /((?:\()?(?:\\.|\.|\[[^\]]+\])(?:\*|\+|\{[^}]+\})(?:\)?))/g
-            );
-            if (match) {
-                for (let i = 0; i < match.length; i++) {
-                    const num = i + 1;
-                    res = res.replace(match[i], () => '${' + num + ':}');
+            const parameterMatches = res.match(/\{[^}]+\}/g);
+            if (parameterMatches) {
+                parameterMatches.forEach((param, index) => {
+                    const snippetNumber = index + 1;
+                    res = res.replace(param, `\${${snippetNumber}:}`);
+                });
+            } else {
+                // If no Cucumber expressions found, look for .* patterns (fallback for processed steps)
+                const dotStarMatches = res.match(/\.\*/g);
+                if (dotStarMatches) {
+                    dotStarMatches.forEach((match, index) => {
+                        const snippetNumber = index + 1;
+                        res = res.replace(match, `\${${snippetNumber}:}`);
+                    });
                 }
             }
         } else {
-            //We can replace some outputs, ex. strings in brackets to make insert strings more neat
+            // For non-smartSnippets mode, clean up common patterns
             res = res.replace(/"\[\^"\]\+"/g, '""');
-        }
-
-        if (this.settings.pureTextSteps) {
-            // Replace all the escape chars for now
-            res = res.replace(/\\/g, '');
-            // Also remove start and end of the string - we don't need them in the completion
-            res = res.replace(/^\^/, '');
-            res = res.replace(/\$$/, '');
+            // Clean up .* patterns that represent parameters
+            res = res.replace(/\.\*/g, '{}');
         }
 
         return res;
     }
+
+
 
     getDocumentation(stepRawComment: string) {
         const stepParsedComment = commentParser.parse(stepRawComment.trim(), {
@@ -552,16 +675,19 @@ export default class StepsHandler {
                     }
                 }
                 if (match) {
-                    const [, beforeGherkin, gherkinString, , stepPart] = match;
-                    const gherkin = getGherkinTypeLower(gherkinString);
-                    const pos = Position.create(lineIndex, beforeGherkin.length);
-                    const def = Location.create(
-                        getOSPath(filePath),
-                        Range.create(pos, pos)
-                    );
-                    steps = steps.concat(
-                        this.getSteps(finalLine, stepPart, def, gherkin, fileComments)
-                    );
+                    // 安全检查：确保 match 数组有足够的元素且不为 undefined
+                    if (match.length >= 5 && match[1] !== undefined && match[2] !== undefined && match[4] !== undefined) {
+                        const [, beforeGherkin, gherkinString, , stepPart] = match;
+                        const gherkin = getGherkinTypeLower(gherkinString);
+                        const pos = Position.create(lineIndex, beforeGherkin.length);
+                        const def = Location.create(
+                            getOSPath(filePath),
+                            Range.create(pos, pos)
+                        );
+                        steps = steps.concat(
+                            this.getSteps(finalLine, stepPart, def, gherkin, fileComments)
+                        );
+                    }
                 }
                 return steps;
             }, new Array<Step>());

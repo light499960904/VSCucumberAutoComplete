@@ -41,6 +41,25 @@ VSCode Cucumber (Gherkin) Language Support + Format + Steps/PageObjects Autocomp
 }
 ```
 
+### JavaScript/TypeScript compiled files support:
+The extension now provides enhanced support for compiled JavaScript files, including:
+- **ES6 destructured imports**: `(0, cucumber_1.When)(\`template\`, callback)`
+- **CommonJS module exports**: `module.exports.When = function(template, callback)`
+- **Direct Cucumber calls**: `cucumber.Given(template, callback)`
+- **Comments handling**: Steps with inline comments are properly parsed
+- **Multi-line definitions**: Steps spanning multiple lines are correctly identified
+
+```javascript
+{
+    "cucumberautocomplete.steps": [
+        "dist/test/steps/**/*.js",        // Compiled TypeScript output
+        "build/step_definitions/**/*.js", // Webpack/Babel output
+        "lib/steps/**/*.js",              // General compiled JS
+        "**/*.steps.js"                   // Any .steps.js files
+    ]
+}
+```
+
 ### All the settings description:
 **`cucumberautocomplete.steps`** - Glob-style path or array of glob-style paths to the gherkin steps files.
 All the files, that match path provided, will be handled by the extension. So, ideally, this path should be as strict as possible (ex. `test/features/step_definitions/*.steps.js` is better then `test/**/*.steps.js` and much better then `**/*.steps.js`)
