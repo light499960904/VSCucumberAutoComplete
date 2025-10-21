@@ -1,6 +1,6 @@
 {
   "name": "cucumberautocomplete",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "CalWu",
   "author": "CalWu",
   "license": "MIT",
@@ -72,6 +72,18 @@
         "path": "./snippets.json"
       }
     ],
+    "commands": [
+      {
+        "command": "cucumberautocomplete.steps.init",
+        "title": "Scan Steps and Generate JSON with AI",
+        "category": "Cucumber"
+      }
+    ],
+    "configurationDefaults": {
+      "[feature]": {
+        "editor.acceptSuggestionOnEnter": "off"
+      }
+    },
     "configuration": {
       "title": "Cucumber Auto Complete settings",
       "properties": {
@@ -80,6 +92,9 @@
           "type": [
             "array",
             "string"
+          ],
+          "default": [
+            "node_modules/@lighthouse/lighthouse-implementation/dist/step-definitions/durandal-platform/*.steps.js"
           ],
           "required": false
         },
@@ -125,7 +140,12 @@
           "description": "Change some steps RegEx parts depending on array of 'parameter' - 'value' key pairs. Parameter could be string or RegEx object",
           "type": "array",
           "required": false,
-          "default": []
+          "default": [
+            {
+              "parameter": "{pronoun}",
+              "value": "I"
+            }
+          ]
         },
         "cucumberautocomplete.skipDocStringsFormat": {
           "description": "Skip format of strings, that placed between ''' or \"\"\" strings",
@@ -167,7 +187,13 @@
           "description": "Customize symbols used around parameter placeholders in code completion. Array of objects with 'parameterType' (parameter name or '*' for default), 'prefix' and 'suffix' properties",
           "type": "array",
           "required": false,
-          "default": [],
+          "default": [
+            {
+              "parameterType": "string",
+              "prefix": "\"",
+              "suffix": "\""
+            }
+          ],
           "items": {
             "type": "object",
             "properties": {
@@ -184,8 +210,69 @@
                 "description": "Symbol to place after the parameter placeholder"
               }
             },
-            "required": ["parameterType", "prefix", "suffix"]
+            "required": [
+              "parameterType",
+              "prefix",
+              "suffix"
+            ]
           }
+        },
+        "cucumberautocomplete.stepsSource": {
+          "description": "Source for step definitions: 'scan' to parse source files or 'json' to read from JSON file",
+          "type": "string",
+          "enum": [
+            "scan",
+            "json"
+          ],
+          "required": false,
+          "default": "scan"
+        },
+        "cucumberautocomplete.stepsJsonFiles": {
+          "description": "Array of paths to JSON files containing step definitions (used when stepsSource is 'json')",
+          "type": "array",
+          "required": false,
+          "default": [
+            "./steps.json"
+          ],
+          "items": {
+            "type": "string",
+            "description": "Path to a JSON file containing step definitions"
+          }
+        },
+        "cucumberautocomplete.aiConfig": {
+          "description": "AI configuration for step extraction and processing",
+          "type": "object",
+          "required": false,
+          "default": {
+            "proxy": "",
+            "token": "",
+            "model": "gpt-4o-mini",
+            "prompt": "请提取文件中的Step定义并转换为Step[]数组。"
+          },
+          "properties": {
+            "proxy": {
+              "type": "string",
+              "description": "Proxy server URL for AI API calls"
+            },
+            "token": {
+              "type": "string",
+              "description": "API token for AI service (required)"
+            },
+            "model": {
+              "type": "string",
+              "description": "AI model to use for processing"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Prompt template for AI processing"
+            }
+          }
+        },
+        "cucumberautocomplete.enableEnterKeyNewlineMode": {
+          "description": "When enabled, pressing Enter in .feature files will always create a new line instead of accepting autocomplete suggestions. This overrides VS Code's editor.acceptSuggestionOnEnter setting for .feature files only.",
+          "type": "boolean", 
+          "required": false,
+          "default": true
         }
       }
     }

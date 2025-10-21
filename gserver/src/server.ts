@@ -28,7 +28,7 @@ import { format, clearText } from './format';
 import StepsHandler from './steps.handler';
 import PagesHandler from './pages.handler';
 import { getOSPath, clearGherkinComments } from './util';
-import { Settings, BaseSettings } from './types';
+import { Settings, BaseSettings, StepsSource } from './types';
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -172,6 +172,15 @@ function getSettingsFromBase(baseSettings: BaseSettings) {
         ...baseSettings,
         steps: getStepsArray(baseSettings.steps),
         pages: baseSettings.pages || {},
+        stepsSource: baseSettings.stepsSource || 'scan' as StepsSource,
+        stepsJsonFiles: baseSettings.stepsJsonFiles || ['./.vscode/stepConfig/**/*.steps.json'],
+        aiConfig: baseSettings.aiConfig || {
+            proxy: '',
+            token: '',
+            model: 'gpt-4o-mini',
+            prompt: '请提取文件中的Step定义并转换为Step[]数组。'
+        },
+        enableEnterKeyNewlineMode: baseSettings.enableEnterKeyNewlineMode ?? true
     };
     return settings;
 }

@@ -15,6 +15,15 @@ export type ParameterSymbolConfig = {
     suffix: string
 };
 
+export type AIConfig = {
+    proxy: string;
+    token: string;
+    model: string;
+    prompt: string;
+};
+
+export type StepsSource = 'json' | 'scan';
+
 type FormatConfVal = number | 'relative' | 'relativeUp';
 
 export interface FormatConf {
@@ -36,7 +45,11 @@ export interface BaseSettings {
     gherkinDefinitionPart?: string,
     stepRegExSymbol?: string,
     pureTextSteps?: boolean,
-    parameterSymbols?: ParameterSymbolConfig[]
+    parameterSymbols?: ParameterSymbolConfig[],
+    stepsSource?: StepsSource,
+    stepsJsonFiles?: string[],
+    aiConfig?: AIConfig,
+    enableEnterKeyNewlineMode?: boolean
 }
 
 export interface Settings {
@@ -54,5 +67,9 @@ export interface Settings {
     gherkinDefinitionPart?: string,
     stepRegExSymbol?: string,
     pureTextSteps?: boolean,
-    parameterSymbols?: ParameterSymbolConfig[]
+    parameterSymbols?: ParameterSymbolConfig[],
+    stepsSource?: StepsSource,
+    stepsJsonFiles?: string[],
+    aiConfig?: AIConfig,
+    enableEnterKeyNewlineMode?: boolean
 }

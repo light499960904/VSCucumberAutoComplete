@@ -1,5 +1,7 @@
 import * as glob from 'glob';
 import * as commentParser from 'doctrine';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import {
     Definition,
@@ -31,7 +33,7 @@ import {
     getGherkinTypeLower,
 } from './gherkin';
 
-import { Settings, StepSettings, CustomParameter, ParameterSymbolConfig } from './types';
+import { Settings, StepSettings, CustomParameter, ParameterSymbolConfig, StepsSource } from './types';
 
 export type Step = {
   id: string;
@@ -75,6 +77,130 @@ export default class StepsHandler {
 
     getGherkinRegEx() {
         return new RegExp(`^(\\s*)(${allGherkinWords})(\\s+)(.*)`);
+    }
+
+    /**
+     * 从多个 JSON 文件读取 Step[] 数据
+     */
+    loadStepsFromJsonFiles(jsonFilePaths: string[]): Step[] {
+        const allSteps: Step[] = [];
+        
+        for (const jsonFilePath of jsonFilePaths) {
+            // 处理 glob 模式路径
+            const resolvedPaths = glob.sync(jsonFilePath, { absolute: true });
+            
+            if (resolvedPaths.length === 0) {
+                console.warn(`No JSON files found matching pattern: ${jsonFilePath}`);
+                continue;
+            }
+            
+            for (const resolvedPath of resolvedPaths) {
+                const steps = this.loadStepsFromJson(resolvedPath);
+                allSteps.push(...steps);
+            }
+        }
+        
+        return allSteps;
+    }
+
+    /**
+     * 从单个 JSON 文件读取 Step[] 数据
+     */
+    loadStepsFromJson(jsonFilePath: string): Step[] {
+        try {
+            const absolutePath = path.resolve(jsonFilePath);
+            if (!fs.existsSync(absolutePath)) {
+                console.warn(`Steps JSON file not found: ${absolutePath}`);
+                return [];
+            }
+            
+            const fileContent = fs.readFileSync(absolutePath, 'utf8');
+            const stepsData = JSON.parse(fileContent);
+            
+            if (!Array.isArray(stepsData)) {
+                console.warn(`Invalid steps JSON format: expected array, got ${typeof stepsData}`);
+                return [];
+            }
+            
+            // 验证和转换每个 step 对象
+            return stepsData.map((stepData: any, index: number) => {
+                try {
+                    stepData.id = getMD5Id(stepData.text);
+                    // 验证必要字段
+                    if (!stepData.id || !stepData.text) {
+                        throw new Error(`Missing required fields (id, text, gherkin) at index ${index}`);
+                    }
+                    
+                    // 创建 RegExp 对象
+                    const regText = stepData.regText || stepData.text;
+                    const reg = new RegExp(stepData.matchText || regText);
+                    let partialReg = new RegExp(stepData.partialRegText || regText);
+                    
+                    // 创建 Definition 对象
+                    const def: Definition = stepData.def || {
+                        uri: stepData.uri || `file://${jsonFilePath}`,
+                        range: {
+                            start: { line: index, character: 0 },
+                            end: { line: index, character: stepData.text.length }
+                        }
+                    };
+                    try {
+                        partialReg = new RegExp(this.getPartialRegText(stepData.text));
+                    } catch (err) {
+                    // Todo - show some warning
+                        partialReg = reg;
+                    }
+                    
+                    return {
+                        id: stepData.id,
+                        reg,
+                        partialReg,
+                        text: stepData.text,
+                        desc: stepData.desc || stepData.text,
+                        def,
+                        count: stepData.count || 0,
+                        gherkin: stepData.gherkin,
+                        documentation: stepData.documentation || stepData.text
+                    } as Step;
+                } catch (error) {
+                    console.warn(`Error parsing step at index ${index}:`, error);
+                    return null;
+                }
+            }).filter((step: Step | null): step is Step => step !== null);
+            
+        } catch (error) {
+            console.error(`Error loading steps from JSON file ${jsonFilePath}:`, error);
+            return [];
+        }
+    }
+
+    /**
+     * 创建初始的空 steps.json 文件
+     */
+    static createInitialStepsJson(workspaceRoot: string, jsonFilePath?: string): string {
+        const filePath = jsonFilePath || path.join(workspaceRoot, '.vscode', 'stepConfig', 'steps.json');
+        const absolutePath = path.resolve(filePath);
+        
+        try {
+            // 检查文件是否已存在
+            if (fs.existsSync(absolutePath)) {
+                return `Steps JSON file already exists: ${absolutePath}`;
+            }
+            
+            // 创建目录（如果不存在）
+            const dir = path.dirname(absolutePath);
+            if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+            }
+            
+            // 创建空的 steps 数组
+            const initialContent = JSON.stringify([], null, 2);
+            fs.writeFileSync(absolutePath, initialContent, 'utf8');
+            
+            return `Successfully created steps JSON file: ${absolutePath}`;
+        } catch (error) {
+            throw new Error(`Failed to create steps JSON file: ${error}`);
+        }
     }
 
     getElements(): Step[] {
@@ -191,10 +317,18 @@ export default class StepsHandler {
             return [cucumberDirectMatch[0], cucumberDirectMatch[1] || '', cucumberDirectMatch[3] || '', cucumberDirectMatch[4] || '', cucumberDirectMatch[5] || ''];
         }
 
-        // Try to match new RegExp constructor: new RegExp(`template`)
-        const regexpMatch = cleanLine.match(/^(.*?new\s+RegExp\s*\(\s*)([`'"/])((?:(?=(?:\\)*)\\.|.)*?)\2/i);
-        if (regexpMatch) {
-            return [regexpMatch[0], regexpMatch[1] || '', '', regexpMatch[2] || '', regexpMatch[3] || ''];
+        // 检查是否是 new RegExp 构造函数调用
+        const regExpCheck = this.isRegExpConstructor(cleanLine);
+        if (regExpCheck.isRegExp && regExpCheck.pattern) {
+            // 如果是 RegExp 构造函数，直接返回解析后的模式
+            return [cleanLine, '', '', '', regExpCheck.pattern];
+        }
+
+        // 检查是否是正则表达式字面量
+        const regexLiteralMatch = cleanLine.match(/^(.*?)(\/([^/]+)\/[gimsuy]*)$/);
+        if (regexLiteralMatch) {
+            // 如果是正则表达式字面量，提取模式部分
+            return [regexLiteralMatch[0], regexLiteralMatch[1] || '', '', '', regexLiteralMatch[3] || ''];
         }
 
         return null;
@@ -375,6 +509,35 @@ export default class StepsHandler {
         return results;
     }
 
+    /**
+     * 检查字符串是否代表一个正则表达式构造调用，包括模板字符串形式
+     * @param text 要检查的文本
+     * @returns 解析结果
+     */
+    isRegExpConstructor(text: string): { isRegExp: boolean; pattern?: string } {
+        // 检查 new RegExp() 构造函数调用
+        const regExpConstructorMatch = /new\s+RegExp\s*\((.*?)\)/s.exec(text);
+        if (regExpConstructorMatch) {
+            const arg = regExpConstructorMatch[1].trim();
+            
+            // 处理字符串字面量参数
+            if ((arg.startsWith("'") && arg.endsWith("'")) || 
+                (arg.startsWith('"') && arg.endsWith('"'))) {
+                return { isRegExp: true, pattern: arg.slice(1, -1) };
+            }
+            
+            // 处理模板字符串参数，可能包含变量替换 ${var}
+            if (arg.startsWith('`') && arg.endsWith('`')) {
+                let pattern = arg.slice(1, -1);
+                // 将模板字符串中的变量替换为通配符
+                pattern = pattern.replace(/\${[^}]+}/g, '.*');
+                return { isRegExp: true, pattern };
+            }
+        }
+
+        return { isRegExp: false };
+    }
+
     specialParameters = [
         //Ruby interpolation (like `#{Something}` ) should be replaced with `.*`
         //https://github.com/alexkrechik/VSCucumberAutoComplete/issues/65
@@ -413,7 +576,93 @@ export default class StepsHandler {
         return `^${step}$`;
     }
 
+    /**
+     * 尝试将转义的字符串反转义为正则表达式模式
+     * @param str 转义的字符串
+     * @returns 反转义后的字符串
+     */
+    private unescapeRegexString(str: string): string {
+        return str.replace(/\\([\\/"'`{}()[\]^$+*?.|])/g, '$1');
+    }
+
+    /**
+     * 验证字符串是否为有效的正则表达式模式
+     * @param pattern 要验证的正则表达式模式
+     * @returns 是否有效
+     */
+    private isValidRegexPattern(pattern: string): boolean {
+        try {
+            new RegExp(pattern);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * 检查并处理不同形式的正则表达式
+     * @param step 输入的步骤字符串
+     * @returns 处理结果
+     */
+    processRegExpPattern(step: string): { isRegExp: boolean; pattern?: string } {
+        // 检查 new RegExp 构造函数调用
+        const regExpCheck = this.isRegExpConstructor(step);
+        if (regExpCheck.isRegExp && regExpCheck.pattern) {
+            const unescaped = this.unescapeRegexString(regExpCheck.pattern);
+            if (this.isValidRegexPattern(unescaped)) {
+                return { isRegExp: true, pattern: unescaped };
+            }
+        }
+
+        // 检查是否是正则表达式字面量格式 /pattern/
+        if (step.startsWith('/') && step.match(/\/[gimsuy]*$/) !== null) {
+            const match = step.match(/^\/(.*)\/[gimsuy]*$/);
+            const pattern = match ? match[1] : step;
+            if (this.isValidRegexPattern(pattern)) {
+                return { isRegExp: true, pattern };
+            }
+        }
+
+        // 检查是否是已转义的正则表达式字符串或以^开头的模式
+        if (step.startsWith('"') || step.startsWith("'") || step.startsWith('`') || step.startsWith('^')) {
+            // 处理字符串形式
+            const content = step.startsWith('^') ? step : step.slice(1, -1);
+            
+            // 检查是否包含模板字符串变量
+            if (content.includes('${')) {
+                // 将模板变量替换为通配符
+                const pattern = content.replace(/\${[^}]+}/g, '.*');
+                if (this.isValidRegexPattern(pattern)) {
+                    return { isRegExp: true, pattern };
+                }
+            }
+            // 如果是转义的正则表达式字符串，进行反转义
+            else if (content.includes('\\')) {
+                const unescaped = this.unescapeRegexString(content);
+                if (this.isValidRegexPattern(unescaped)) {
+                    return { isRegExp: true, pattern: unescaped };
+                }
+            }
+            // 如果是简单的以^开头的模式
+            else if (content.startsWith('^')) {
+                if (this.isValidRegexPattern(content)) {
+                    return { isRegExp: true, pattern: content };
+                }
+            }
+        }
+
+        return { isRegExp: false };
+    }
+
+    isRegExpLiteral(step: string): boolean {
+        return this.processRegExpPattern(step).isRegExp;
+    }
+
     getRegTextForStep(step: string): string {
+        const regExpCheck = this.processRegExpPattern(step);
+        if (regExpCheck.isRegExp && regExpCheck.pattern) {
+            return regExpCheck.pattern;
+        }
 
         this.specialParameters.forEach(([parameter, change]) => {
             step = step.replace(parameter, change)
@@ -504,7 +753,7 @@ export default class StepsHandler {
         
         // {string} pattern: (\"|')[^\\1]*\\1 becomes (\"|')[^1]*1 after removing backslashes  
         // Use exact string replacement since regex escaping is complex for this pattern
-        step = step.split('(\"|\')\[^1]*1').join('{string}');
+        step = step.split('("|\')[^1]*1').join('{string}');
         
         // {stringInDoubleQuotes} pattern: "[^"]+"
         step = step.replace(/"\[^"\]\+"/g, '{stringInDoubleQuotes}');
@@ -777,7 +1026,10 @@ export default class StepsHandler {
         ).comments;
     }
 
-    getFileSteps(filePath: string) {
+    /**
+     * 从源码文件解析步骤定义（原有逻辑）
+     */
+    getFileStepsFromSource(filePath: string): Step[] {
         const fileContent = getFileContent(filePath);
         const fileComments = this.getMultiLineComments(fileContent);
         const definitionFile = clearComments(fileContent);
@@ -821,6 +1073,27 @@ export default class StepsHandler {
                 }
                 return steps;
             }, new Array<Step>());
+    }
+
+    /**
+     * 获取文件步骤定义 - 支持 JSON 和源码扫描两种模式
+     * @param filePath 文件路径（在 scan 模式下使用）
+     * @returns Step[] 数组
+     */
+    getFileSteps(filePath: string): Step[] {
+        const stepsSource = this.settings.stepsSource || 'scan';
+        
+        switch (stepsSource) {
+        case 'json': {
+            // JSON 模式：从指定的 JSON 文件数组读取
+            const jsonFiles = this.settings.stepsJsonFiles || ['./.vscode/stepConfig/**/*.steps.json'];
+            return this.loadStepsFromJsonFiles(jsonFiles);
+        }
+        case 'scan':
+        default:
+            // 扫描模式：使用原有逻辑解析源码文件
+            return this.getFileStepsFromSource(filePath);
+        }
     }
 
     validateConfiguration(
@@ -893,6 +1166,7 @@ export default class StepsHandler {
             ? this.getStrictGherkinType(gherkinPart, lineNum, text)
             : undefined;
         const step = this.getStepByText(match[4], gherkinWord);
+        return null;
         if (step) {
             return null;
         } else {
